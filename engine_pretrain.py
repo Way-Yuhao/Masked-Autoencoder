@@ -215,8 +215,6 @@ def train_one_epoch(model: torch.nn.Module,
         end = time.time()
         iter_time = misc.SmoothedValue(fmt='{avg:.4f}')
         data_time = misc.SmoothedValue(fmt='{avg:.4f}')
-        mb = 1024.0 * 1024.0
-        has_cuda = torch.cuda.is_available()
 
         if progress_backend[0] == 'rich':
             classes = progress_backend[1]
@@ -226,31 +224,27 @@ def train_one_epoch(model: torch.nn.Module,
                 classes['TaskProgressColumn'](),
                 classes['TimeRemainingColumn'](),
                 classes['TextColumn'](
-                    'lr:{task.fields[lr]} loss:{task.fields[loss]} time:{task.fields[time]} '
-                    'data:{task.fields[data]}{task.fields[mem]}'
+                    'lr:{task.fields[lr]} loss:{task.fields[loss]} '
+                    'batch_time:{task.fields[batch_time]} data_time:{task.fields[data_time]}'
                 ),
                 transient=False,
             )
             with progress:
                 task_id = progress.add_task(
                     'train', total=total_steps, lr='0.000000', loss='0.0000',
-                    time='0.0000', data='0.0000', mem=''
+                    batch_time='0.0000', data_time='0.0000'
                 )
                 for data_iter_step, (samples, _) in enumerate(data_loader):
                     data_time.update(time.time() - end)
                     lr = _run_step(data_iter_step, samples)
                     iter_time.update(time.time() - end)
-                    mem = ''
-                    if has_cuda:
-                        mem = ' max mem:{:.0f}'.format(torch.cuda.max_memory_allocated() / mb)
                     progress.update(
                         task_id,
                         advance=1,
                         lr='{:.6f}'.format(lr),
                         loss='{:.4f}'.format(metric_logger.loss.global_avg),
-                        time='{:.4f}'.format(iter_time.avg),
-                        data='{:.4f}'.format(data_time.avg),
-                        mem=mem,
+                        batch_time='{:.4f}'.format(iter_time.avg),
+                        data_time='{:.4f}'.format(data_time.avg),
                     )
                     end = time.time()
         else:
@@ -263,12 +257,9 @@ def train_one_epoch(model: torch.nn.Module,
                     postfix = {
                         'lr': '{:.6f}'.format(lr),
                         'loss': '{:.4f}'.format(metric_logger.loss.global_avg),
-                        'time': '{:.4f}'.format(iter_time.avg),
-                        'data': '{:.4f}'.format(data_time.avg),
+                        'batch_time': '{:.4f}'.format(iter_time.avg),
+                        'data_time': '{:.4f}'.format(data_time.avg),
                     }
-                    if has_cuda:
-                        max_mem = torch.cuda.max_memory_allocated() / mb
-                        postfix['max mem'] = '{:.0f}'.format(max_mem)
                     pbar.set_postfix(postfix)
                     pbar.update(1)
                     end = time.time()
