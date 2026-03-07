@@ -105,6 +105,10 @@ def get_args_parser():
                         help='path where to save, empty for no saving')
     parser.add_argument('--log_dir', default='./output_dir',
                         help='path where to tensorboard log')
+    parser.add_argument('--vis_log_every_n_steps', default=100, type=int,
+                        help='TensorBoard image logging interval in train steps (<=0 disables)')
+    parser.add_argument('--vis_num_images', default=1, type=int,
+                        help='number of samples per visualization event')
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
     parser.add_argument('--seed', default=0, type=int)
