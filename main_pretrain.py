@@ -120,7 +120,7 @@ def get_args_parser():
                         help='path where to tensorboard log')
     parser.add_argument('--run_name', default='',
                         help='run subdirectory name; default is current datetime')
-    parser.add_argument('--vis_log_every_n_steps', default=100, type=int,
+    parser.add_argument('--vis_log_every_n_steps', default=500, type=int,
                         help='TensorBoard image logging interval in train steps (<=0 disables)')
     parser.add_argument('--vis_num_images', default=1, type=int,
                         help='number of samples per visualization event')

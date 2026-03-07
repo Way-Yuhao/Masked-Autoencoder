@@ -10,6 +10,8 @@
 # --------------------------------------------------------
 import math
 import sys
+import time
+import datetime
 from typing import Iterable
 
 import torch
@@ -18,6 +20,38 @@ from PIL import Image, ImageDraw, ImageFont
 
 import util.misc as misc
 import util.lr_sched as lr_sched
+
+
+def _select_progress_backend():
+    if not sys.stdout.isatty() or not misc.is_main_process():
+        return None
+
+    try:
+        from rich.progress import Progress
+        from rich.progress import TextColumn
+        from rich.progress import BarColumn
+        from rich.progress import TaskProgressColumn
+        from rich.progress import TimeRemainingColumn
+
+        return (
+            'rich',
+            {
+                'Progress': Progress,
+                'TextColumn': TextColumn,
+                'BarColumn': BarColumn,
+                'TaskProgressColumn': TaskProgressColumn,
+                'TimeRemainingColumn': TimeRemainingColumn,
+            },
+        )
+    except Exception:
+        pass
+
+    try:
+        from tqdm import tqdm
+
+        return 'tqdm', {'tqdm': tqdm}
+    except Exception:
+        return None
 
 
 def _build_vis_4panel(model, samples, pred, mask, vis_num_images, norm_pix_loss):
@@ -111,14 +145,13 @@ def train_one_epoch(model: torch.nn.Module,
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
 
-    for data_iter_step, (samples, _) in enumerate(
-        metric_logger.log_every(data_loader, print_freq, header)
-    ):
+    total_steps = len(data_loader)
+    progress_backend = _select_progress_backend()
 
-        # we use a per iteration (instead of per epoch) lr scheduler
+    def _run_step(data_iter_step, samples):
         if data_iter_step % accum_iter == 0:
             lr_sched.adjust_learning_rate(
-                optimizer, data_iter_step / len(data_loader) + epoch, args
+                optimizer, data_iter_step / total_steps + epoch, args
             )
 
         samples = samples.to(device, non_blocking=True)
@@ -127,21 +160,21 @@ def train_one_epoch(model: torch.nn.Module,
             loss, pred, mask = model(samples, mask_ratio=args.mask_ratio)
 
         loss_value = loss.item()
-
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value))
             sys.exit(1)
 
-        loss /= accum_iter
-        loss_scaler(loss, optimizer, parameters=model.parameters(),
-                    update_grad=(data_iter_step + 1) % accum_iter == 0)
+        loss = loss / accum_iter
+        loss_scaler(
+            loss, optimizer, parameters=model.parameters(),
+            update_grad=(data_iter_step + 1) % accum_iter == 0
+        )
         if (data_iter_step + 1) % accum_iter == 0:
             optimizer.zero_grad()
 
         torch.cuda.synchronize()
 
         metric_logger.update(loss=loss_value)
-
         lr = optimizer.param_groups[0]["lr"]
         metric_logger.update(lr=lr)
 
@@ -162,18 +195,88 @@ def train_one_epoch(model: torch.nn.Module,
                     norm_pix_loss=args.norm_pix_loss,
                 )
             if vis_image is not None:
-                vis_step = epoch * len(data_loader) + data_iter_step
+                vis_step = epoch * total_steps + data_iter_step
                 log_writer.add_image('pretrain/vis_4panel', vis_image, vis_step)
 
         loss_value_reduce = misc.all_reduce_mean(loss_value)
         if log_writer is not None and (data_iter_step + 1) % accum_iter == 0:
-            """ We use epoch_1000x as the x-axis in tensorboard.
-            This calibrates different curves when batch size changes.
-            """
-            epoch_1000x = int((data_iter_step / len(data_loader) + epoch) * 1000)
+            epoch_1000x = int((data_iter_step / total_steps + epoch) * 1000)
             log_writer.add_scalar('train_loss', loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('lr', lr, epoch_1000x)
+        return lr
 
+    if progress_backend is None:
+        for data_iter_step, (samples, _) in enumerate(
+            metric_logger.log_every(data_loader, print_freq, header)
+        ):
+            _run_step(data_iter_step, samples)
+    else:
+        start_time = time.time()
+        end = time.time()
+        iter_time = misc.SmoothedValue(fmt='{avg:.4f}')
+        data_time = misc.SmoothedValue(fmt='{avg:.4f}')
+        mb = 1024.0 * 1024.0
+        has_cuda = torch.cuda.is_available()
+
+        if progress_backend[0] == 'rich':
+            classes = progress_backend[1]
+            progress = classes['Progress'](
+                classes['TextColumn'](header + ' {task.completed}/{task.total}'),
+                classes['BarColumn'](),
+                classes['TaskProgressColumn'](),
+                classes['TimeRemainingColumn'](),
+                classes['TextColumn'](
+                    'lr:{task.fields[lr]} loss:{task.fields[loss]} time:{task.fields[time]} '
+                    'data:{task.fields[data]}{task.fields[mem]}'
+                ),
+                transient=False,
+            )
+            with progress:
+                task_id = progress.add_task(
+                    'train', total=total_steps, lr='0.000000', loss='0.0000',
+                    time='0.0000', data='0.0000', mem=''
+                )
+                for data_iter_step, (samples, _) in enumerate(data_loader):
+                    data_time.update(time.time() - end)
+                    lr = _run_step(data_iter_step, samples)
+                    iter_time.update(time.time() - end)
+                    mem = ''
+                    if has_cuda:
+                        mem = ' max mem:{:.0f}'.format(torch.cuda.max_memory_allocated() / mb)
+                    progress.update(
+                        task_id,
+                        advance=1,
+                        lr='{:.6f}'.format(lr),
+                        loss='{:.4f}'.format(metric_logger.loss.global_avg),
+                        time='{:.4f}'.format(iter_time.avg),
+                        data='{:.4f}'.format(data_time.avg),
+                        mem=mem,
+                    )
+                    end = time.time()
+        else:
+            tqdm = progress_backend[1]['tqdm']
+            with tqdm(total=total_steps, desc=header, dynamic_ncols=True) as pbar:
+                for data_iter_step, (samples, _) in enumerate(data_loader):
+                    data_time.update(time.time() - end)
+                    lr = _run_step(data_iter_step, samples)
+                    iter_time.update(time.time() - end)
+                    postfix = {
+                        'lr': '{:.6f}'.format(lr),
+                        'loss': '{:.4f}'.format(metric_logger.loss.global_avg),
+                        'time': '{:.4f}'.format(iter_time.avg),
+                        'data': '{:.4f}'.format(data_time.avg),
+                    }
+                    if has_cuda:
+                        max_mem = torch.cuda.max_memory_allocated() / mb
+                        postfix['max mem'] = '{:.0f}'.format(max_mem)
+                    pbar.set_postfix(postfix)
+                    pbar.update(1)
+                    end = time.time()
+
+        total_time = time.time() - start_time
+        total_time_str = str(datetime.timedelta(seconds=int(total_time)))
+        print('{} Total time: {} ({:.4f} s / it)'.format(
+            header, total_time_str, total_time / total_steps))
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
