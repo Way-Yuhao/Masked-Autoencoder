@@ -24,8 +24,12 @@ import torchvision.datasets as datasets
 
 import timm
 
-assert timm.__version__ == "0.3.2"  # version check
-import timm.optim.optim_factory as optim_factory
+if timm.__version__ != "0.3.2":
+    print(f"Warning: timm=={timm.__version__} (repo originally pinned to 0.3.2).")
+try:
+    from timm.optim import optim_factory
+except Exception:
+    import timm.optim.optim_factory as optim_factory
 
 import util.misc as misc
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
@@ -33,6 +37,28 @@ from util.misc import NativeScalerWithGradNormCount as NativeScaler
 import models_mae
 
 from engine_pretrain import train_one_epoch
+
+
+def build_param_groups(model, weight_decay):
+    # timm API changed across versions: support both old and new names.
+    if hasattr(optim_factory, "add_weight_decay"):
+        return optim_factory.add_weight_decay(model, weight_decay)
+    if hasattr(optim_factory, "param_groups_weight_decay"):
+        return optim_factory.param_groups_weight_decay(model, weight_decay=weight_decay)
+
+    # Fallback if timm does not expose helpers: no decay for 1D params (bias/norm).
+    decay, no_decay = [], []
+    for _, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        if p.ndim <= 1:
+            no_decay.append(p)
+        else:
+            decay.append(p)
+    return [
+        {"params": no_decay, "weight_decay": 0.0},
+        {"params": decay, "weight_decay": weight_decay},
+    ]
 
 
 def get_args_parser():
@@ -176,7 +202,7 @@ def main(args):
         model_without_ddp = model.module
     
     # following timm: set wd as 0 for bias and norm layers
-    param_groups = optim_factory.add_weight_decay(model_without_ddp, args.weight_decay)
+    param_groups = build_param_groups(model_without_ddp, args.weight_decay)
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
     print(optimizer)
     loss_scaler = NativeScaler()
