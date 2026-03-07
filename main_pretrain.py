@@ -61,6 +61,19 @@ def build_param_groups(model, weight_decay):
     ]
 
 
+def resolve_run_dirs(args):
+    run_name = args.run_name.strip() if args.run_name else ''
+    if not run_name:
+        run_name = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+
+    if args.output_dir:
+        args.output_dir = os.path.join(args.output_dir, run_name)
+    if args.log_dir:
+        args.log_dir = os.path.join(args.log_dir, run_name)
+    args.run_name = run_name
+    return args
+
+
 def get_args_parser():
     parser = argparse.ArgumentParser('MAE pre-training', add_help=False)
     parser.add_argument('--batch_size', default=64, type=int,
@@ -105,6 +118,8 @@ def get_args_parser():
                         help='path where to save, empty for no saving')
     parser.add_argument('--log_dir', default='./output_dir',
                         help='path where to tensorboard log')
+    parser.add_argument('--run_name', default='',
+                        help='run subdirectory name; default is current datetime')
     parser.add_argument('--vis_log_every_n_steps', default=100, type=int,
                         help='TensorBoard image logging interval in train steps (<=0 disables)')
     parser.add_argument('--vis_num_images', default=1, type=int,
@@ -246,6 +261,7 @@ def main(args):
 if __name__ == '__main__':
     args = get_args_parser()
     args = args.parse_args()
+    args = resolve_run_dirs(args)
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     main(args)

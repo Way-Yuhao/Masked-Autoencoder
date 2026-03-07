@@ -13,6 +13,8 @@ import sys
 from typing import Iterable
 
 import torch
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 import util.misc as misc
 import util.lr_sched as lr_sched
@@ -51,11 +53,44 @@ def _build_vis_4panel(model, samples, pred, mask, vis_num_images, norm_pix_loss)
     reconstruction = (reconstruction * std + mean).clamp(0, 1)
     reconstruction_with_visible = (reconstruction_with_visible * std + mean).clamp(0, 1)
 
+    border = 4
+    caption_h = 26
+    panel_titles = ['original', 'masked', 'reconstruction', 'reconstruction + visible']
+
     rows = []
     for i in range(vis_num):
-        row = torch.cat([original[i], masked[i], reconstruction[i], reconstruction_with_visible[i]], dim=2)
-        rows.append(row)
-    return torch.cat(rows, dim=1).detach().cpu()
+        panels = [original[i], masked[i], reconstruction[i], reconstruction_with_visible[i]]
+        h = panels[0].shape[1]
+        white_sep = torch.ones(3, h, border, device=panels[0].device)
+        row = [panels[0]]
+        for p in panels[1:]:
+            row.extend([white_sep, p])
+        rows.append(torch.cat(row, dim=2))
+
+    white_h_sep = torch.ones(3, border, rows[0].shape[2], device=rows[0].device)
+    stacked = [rows[0]]
+    for r in rows[1:]:
+        stacked.extend([white_h_sep, r])
+    grid = torch.cat(stacked, dim=1).detach().cpu()
+
+    grid_uint8 = (grid.clamp(0, 1).numpy() * 255.0).astype(np.uint8)
+    grid_uint8 = np.transpose(grid_uint8, (1, 2, 0))
+
+    canvas_h = caption_h + grid_uint8.shape[0]
+    canvas_w = grid_uint8.shape[1]
+    canvas = np.full((canvas_h, canvas_w, 3), 255, dtype=np.uint8)
+    canvas[caption_h:, :, :] = grid_uint8
+    img = Image.fromarray(canvas)
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+
+    panel_w = original.shape[-1]
+    starts = [0, panel_w + border, 2 * panel_w + 2 * border, 3 * panel_w + 3 * border]
+    for x0, title in zip(starts, panel_titles):
+        draw.text((x0 + 6, 6), title, fill=(0, 0, 0), font=font)
+
+    result = np.transpose(np.asarray(img), (2, 0, 1))
+    return torch.from_numpy(result).float() / 255.0
 
 
 def train_one_epoch(model: torch.nn.Module,
@@ -76,11 +111,15 @@ def train_one_epoch(model: torch.nn.Module,
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
 
-    for data_iter_step, (samples, _) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    for data_iter_step, (samples, _) in enumerate(
+        metric_logger.log_every(data_loader, print_freq, header)
+    ):
 
         # we use a per iteration (instead of per epoch) lr scheduler
         if data_iter_step % accum_iter == 0:
-            lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
+            lr_sched.adjust_learning_rate(
+                optimizer, data_iter_step / len(data_loader) + epoch, args
+            )
 
         samples = samples.to(device, non_blocking=True)
 
