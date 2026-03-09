@@ -3,6 +3,7 @@ defaults:
   - model_summary
   - tqdm_progress_bar
   - imagenet_vit_evaluator
+  - wandb_osh
   - _self_
 
 model_checkpoint:
