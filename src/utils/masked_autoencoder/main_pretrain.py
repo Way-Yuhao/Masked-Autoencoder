@@ -26,7 +26,7 @@ import timm
 
 if timm.__version__ != "0.3.2":
     print(f"Warning: timm=={timm.__version__} (repo originally pinned to 0.3.2).")
-from timm.optim import optim_factory
+from timm.optim import param_groups_weight_decay
 from src.utils.masked_autoencoder.util import misc
 from src.utils.masked_autoencoder.util.misc import NativeScalerWithGradNormCount as NativeScaler
 from src.utils.masked_autoencoder import models_mae
@@ -34,25 +34,7 @@ from src.utils.masked_autoencoder.engine_pretrain import train_one_epoch
 
 
 def build_param_groups(model, weight_decay):
-    # timm API changed across versions: support both old and new names.
-    if hasattr(optim_factory, "add_weight_decay"):
-        return optim_factory.add_weight_decay(model, weight_decay)
-    if hasattr(optim_factory, "param_groups_weight_decay"):
-        return optim_factory.param_groups_weight_decay(model, weight_decay=weight_decay)
-
-    # Fallback if timm does not expose helpers: no decay for 1D params (bias/norm).
-    decay, no_decay = [], []
-    for _, p in model.named_parameters():
-        if not p.requires_grad:
-            continue
-        if p.ndim <= 1:
-            no_decay.append(p)
-        else:
-            decay.append(p)
-    return [
-        {"params": no_decay, "weight_decay": 0.0},
-        {"params": decay, "weight_decay": weight_decay},
-    ]
+    return param_groups_weight_decay(model, weight_decay=weight_decay)
 
 
 def resolve_run_dirs(args):
