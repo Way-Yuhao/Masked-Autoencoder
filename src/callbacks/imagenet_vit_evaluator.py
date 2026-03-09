@@ -220,7 +220,7 @@ class ImagenetViTEvaluator(AbstractFrequencyLoggingCallback):
         for x_pos, title in zip(starts, titles):
             draw.text((x_pos + 6, 6), title, fill=(0, 0, 0), font=font)
 
-        out = np.transpose(np.asarray(image), (2, 0, 1))
+        out = np.transpose(np.array(image, copy=True), (2, 0, 1))
         return torch.from_numpy(out).float() / 255.0
 
     def _to_rgb_tensor(self, x: torch.Tensor) -> torch.Tensor:
