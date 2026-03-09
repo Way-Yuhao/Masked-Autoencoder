@@ -18,18 +18,11 @@ log = RankedLogger(name=__name__, rank_zero_only=False)
 class ImagenetViTEvaluator(Callback):
     """RGB ViT MAE reconstruction visualizer and baseline reporter."""
 
-    def __init__(
-        self,
-        train_log_img_freq: int = 10,
-        val_log_img_freq: int = 10,
-        check_freq_via: str = "epoch",
-        disable_image_logging: bool = False,
-        log_test_on_wandb: bool = False,
-        report_zero_baseline: bool = True,
-        vis_num_images: int = 1,
-        mean: Sequence[float] = (0.485, 0.456, 0.406),
-        std: Sequence[float] = (0.229, 0.224, 0.225),
-    ) -> None:
+    def __init__(self, train_log_img_freq: int = 10, val_log_img_freq: int = 10,
+                 check_freq_via: str = "epoch", disable_image_logging: bool = False,
+                 log_test_on_wandb: bool = False, report_zero_baseline: bool = True,
+                 vis_num_images: int = 1, mean: Sequence[float] = (0.485, 0.456, 0.406),
+                 std: Sequence[float] = (0.229, 0.224, 0.225)) -> None:
         super().__init__()
         self.train_log_img_freq = train_log_img_freq
         self.val_log_img_freq = val_log_img_freq
@@ -46,84 +39,35 @@ class ImagenetViTEvaluator(Callback):
         self._warned_missing_keys = False
         log.info("Imagenet ViT Evaluator callback initialized.")
 
-    def on_train_batch_end(
-        self,
-        trainer: Trainer,
-        pl_module: LightningModule,
-        outputs: STEP_OUTPUT,
-        batch: Any,
-        batch_idx: int,
-    ) -> None:
+    def on_train_batch_end(self, trainer: Trainer, pl_module: LightningModule,
+                           outputs: STEP_OUTPUT, batch: Any, batch_idx: int) -> None:
         del batch_idx
         if self._check_frequency(trainer, "train_img", update=True, skip_sanity=True):
-            self._log_reconstruction(
-                trainer=trainer,
-                pl_module=pl_module,
-                outputs=outputs,
-                batch=batch,
-                stage="train",
-            )
-        self.report_baseline_metric(
-            trainer=trainer,
-            pl_module=pl_module,
-            outputs=outputs,
-            batch=batch,
-            stage="train",
-        )
+            self._log_reconstruction(trainer=trainer, pl_module=pl_module, outputs=outputs,
+                                     batch=batch, stage="train")
+        self.report_baseline_metric(trainer=trainer, pl_module=pl_module, outputs=outputs,
+                                    batch=batch, stage="train")
 
-    def on_validation_batch_end(
-        self,
-        trainer: Trainer,
-        pl_module: LightningModule,
-        outputs: STEP_OUTPUT,
-        batch: Any,
-        batch_idx: int,
-        dataloader_idx: int = 0,
-    ) -> None:
+    def on_validation_batch_end(self, trainer: Trainer, pl_module: LightningModule,
+                                outputs: STEP_OUTPUT, batch: Any, batch_idx: int,
+                                dataloader_idx: int = 0) -> None:
         del batch_idx, dataloader_idx
         if self._check_frequency(trainer, "val_img", update=True, skip_sanity=True):
-            self._log_reconstruction(
-                trainer=trainer,
-                pl_module=pl_module,
-                outputs=outputs,
-                batch=batch,
-                stage="val",
-            )
-        self.report_baseline_metric(
-            trainer=trainer,
-            pl_module=pl_module,
-            outputs=outputs,
-            batch=batch,
-            stage="val",
-        )
+            self._log_reconstruction(trainer=trainer, pl_module=pl_module, outputs=outputs,
+                                     batch=batch, stage="val")
+        self.report_baseline_metric(trainer=trainer, pl_module=pl_module, outputs=outputs,
+                                    batch=batch, stage="val")
 
-    def on_test_batch_end(
-        self,
-        trainer: Trainer,
-        pl_module: LightningModule,
-        outputs: STEP_OUTPUT,
-        batch: Any,
-        batch_idx: int,
-        dataloader_idx: int = 0,
-    ) -> None:
+    def on_test_batch_end(self, trainer: Trainer, pl_module: LightningModule,
+                          outputs: STEP_OUTPUT, batch: Any, batch_idx: int,
+                          dataloader_idx: int = 0) -> None:
         del dataloader_idx
         if self.log_test_on_wandb and batch_idx == 0:
-            self._log_reconstruction(
-                trainer=trainer,
-                pl_module=pl_module,
-                outputs=outputs,
-                batch=batch,
-                stage="test",
-            )
+            self._log_reconstruction(trainer=trainer, pl_module=pl_module, outputs=outputs,
+                                     batch=batch, stage="test")
 
-    def _log_reconstruction(
-        self,
-        trainer: Trainer,
-        pl_module: LightningModule,
-        outputs: STEP_OUTPUT,
-        batch: Any,
-        stage: str,
-    ) -> None:
+    def _log_reconstruction(self, trainer: Trainer, pl_module: LightningModule,
+                            outputs: STEP_OUTPUT, batch: Any, stage: str) -> None:
         if self.disable_image_logging or not trainer.is_global_zero:
             return
         if not isinstance(outputs, dict):
@@ -134,10 +78,7 @@ class ImagenetViTEvaluator(Callback):
         samples = self._extract_images(batch)
         if pred is None or mask is None or samples is None:
             if not self._warned_missing_keys:
-                log.warning(
-                    "ImagenetViTEvaluator expects outputs keys ['pred', 'mae_mask'] "
-                    "and image batch data."
-                )
+                log.warning("ImagenetViTEvaluator expects 'pred', 'mae_mask', and image batch data.")
                 self._warned_missing_keys = True
             return
 
@@ -147,12 +88,8 @@ class ImagenetViTEvaluator(Callback):
             return
 
         with torch.no_grad():
-            vis_image = self._build_vis_4panel(
-                mae_model=mae_model,
-                samples=samples.detach(),
-                pred=pred.detach(),
-                mask=mask.detach(),
-            )
+            vis_image = self._build_vis_4panel(mae_model=mae_model, samples=samples.detach(),
+                                               pred=pred.detach(), mask=mask.detach())
 
         if vis_image is None:
             return
@@ -169,20 +106,11 @@ class ImagenetViTEvaluator(Callback):
             f"loss={loss_val:.6f}, mask_ratio={mask_ratio:.3f}"
         )
 
-        self._log_image_to_loggers(
-            trainer=trainer,
-            vis_image=vis_image,
-            stage=stage,
-            caption=caption,
-        )
+        self._log_image_to_loggers(trainer=trainer, vis_image=vis_image, stage=stage,
+                                   caption=caption)
 
-    def _log_image_to_loggers(
-        self,
-        trainer: Trainer,
-        vis_image: torch.Tensor,
-        stage: str,
-        caption: str,
-    ) -> None:
+    def _log_image_to_loggers(self, trainer: Trainer, vis_image: torch.Tensor, stage: str,
+                              caption: str) -> None:
         step = int(trainer.global_step)
         for logger in trainer.loggers:
             if isinstance(logger, TensorBoardLogger):
@@ -199,14 +127,8 @@ class ImagenetViTEvaluator(Callback):
                 step=step,
             )
 
-    def report_baseline_metric(
-        self,
-        trainer: Trainer,
-        pl_module: LightningModule,
-        outputs: STEP_OUTPUT,
-        batch: Any,
-        stage: str,
-    ) -> None:
+    def report_baseline_metric(self, trainer: Trainer, pl_module: LightningModule,
+                               outputs: STEP_OUTPUT, batch: Any, stage: str) -> None:
         del trainer
         if not self.report_zero_baseline or not isinstance(outputs, dict):
             return
@@ -216,10 +138,7 @@ class ImagenetViTEvaluator(Callback):
             return
 
         zero_baseline = self._masked_zero_baseline(
-            pl_module=pl_module,
-            outputs=outputs,
-            batch=batch,
-        )
+            pl_module=pl_module, outputs=outputs, batch=batch)
         if not np.isfinite(zero_baseline):
             return
 
@@ -232,20 +151,10 @@ class ImagenetViTEvaluator(Callback):
                 f"{stage}/zero_baseline": zero_baseline,
                 f"{stage}/loss_over_zero_baseline": ratio,
             },
-            on_step=False,
-            on_epoch=True,
-            prog_bar=False,
-            logger=True,
-            sync_dist=True,
-            batch_size=batch_size,
-        )
+            on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True, batch_size=batch_size)
 
-    def _masked_zero_baseline(
-        self,
-        pl_module: LightningModule,
-        outputs: STEP_OUTPUT,
-        batch: Any,
-    ) -> float:
+    def _masked_zero_baseline(self, pl_module: LightningModule, outputs: STEP_OUTPUT,
+                              batch: Any) -> float:
         if not isinstance(outputs, dict):
             return float("nan")
 
@@ -295,13 +204,8 @@ class ImagenetViTEvaluator(Callback):
             return model
         return None
 
-    def _build_vis_4panel(
-        self,
-        mae_model: torch.nn.Module,
-        samples: torch.Tensor,
-        pred: torch.Tensor,
-        mask: torch.Tensor,
-    ) -> Optional[torch.Tensor]:
+    def _build_vis_4panel(self, mae_model: torch.nn.Module, samples: torch.Tensor,
+                          pred: torch.Tensor, mask: torch.Tensor) -> Optional[torch.Tensor]:
         vis_num = min(int(self.vis_num_images), samples.shape[0])
         if vis_num <= 0:
             return None
@@ -374,13 +278,8 @@ class ImagenetViTEvaluator(Callback):
         std = x.new_tensor(self.std).view(1, 3, 1, 1)
         return (x * std + mean).clamp(0, 1)
 
-    def _check_frequency(
-        self,
-        trainer: Trainer,
-        key: str,
-        update: bool = True,
-        skip_sanity: bool = True,
-    ) -> bool:
+    def _check_frequency(self, trainer: Trainer, key: str, update: bool = True,
+                         skip_sanity: bool = True) -> bool:
         if self.freqs[key] == -1:
             return False
         if skip_sanity and trainer.current_epoch == 0:
