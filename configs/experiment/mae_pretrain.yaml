@@ -8,7 +8,6 @@ defaults:
   - override /model: mae_pretrain
   - override /callbacks: pretrain
   - override /trainer: gpu
-  - override /logger: tensorboard
 
 task_name: "mae_pretrain"
 tags: ["mae", "pretrain", "imagenet"]

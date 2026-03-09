@@ -2,6 +2,7 @@ defaults:
   - model_checkpoint
 #  - early_stopping
   - model_summary
+  - tqdm_progress_bar
 #  - rich_progress_bar # disabled, interferes with wandb logging
   - slack_alert
   - _self_

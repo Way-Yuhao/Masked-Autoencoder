@@ -1,6 +1,7 @@
 defaults:
   - model_checkpoint
   - model_summary
+  - tqdm_progress_bar
   - _self_
 
 model_checkpoint:

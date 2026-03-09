@@ -119,15 +119,8 @@ class MAEPretrainLitModule(LightningModule):
         if not torch.isfinite(loss):
             raise RuntimeError(f"Loss is {loss.item()}, stopping training.")
 
-        self.log(
-            "train/loss",
-            loss,
-            on_step=True,
-            on_epoch=True,
-            prog_bar=True,
-            sync_dist=True,
-            batch_size=samples.shape[0],
-        )
+        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True,
+                 batch_size=samples.shape[0])
 
         total_steps = int(self.trainer.num_training_batches)
         if _is_optimizer_step(batch_idx, total_steps, int(self.hparams.accum_iter)):
