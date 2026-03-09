@@ -19,18 +19,10 @@ def _is_optimizer_step(batch_idx: int, total_steps: int, accum_iter: int) -> boo
 
 
 class MAEPretrainLitModule(LightningModule):
-    def __init__(
-        self,
-        net: torch.nn.Module,
-        optimizer: torch.optim.Optimizer,
-        scheduler: Optional[Any] = None,
-        mask_ratio: float = 0.75,
-        weight_decay: float = 0.05,
-        lr: Optional[float] = None,
-        blr: float = 1e-3,
-        accum_iter: int = 1,
-        compile: bool = False,
-    ) -> None:
+
+    def __init__(self, net: torch.nn.Module, optimizer: torch.optim.Optimizer, scheduler: Optional[Any] = None,
+                 mask_ratio: float = 0.75, weight_decay: float = 0.05, lr: Optional[float] = None, blr: float = 1e-3,
+                 accum_iter: int = 1, compile: bool = False) -> None:
         super().__init__()
         self.save_hyperparameters(logger=False, ignore=["net"])
 
@@ -82,11 +74,7 @@ class MAEPretrainLitModule(LightningModule):
         # MAE updates LR before the forward pass of each accumulation window.
         self.current_lr = self.mae_scheduler.step(epoch_progress)
 
-    def training_step(
-        self,
-        batch: Tuple[torch.Tensor, torch.Tensor],
-        batch_idx: int,
-    ) -> Dict[str, torch.Tensor]:
+    def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> Dict[str, torch.Tensor]:
         samples, _ = batch
         loss, pred, mask = self.forward(samples)
 
@@ -104,9 +92,7 @@ class MAEPretrainLitModule(LightningModule):
 
     def configure_optimizers(self) -> Dict[str, Any]:
         param_groups = build_param_groups(self.net, float(self.hparams.weight_decay))
-        initial_lr = (
-            float(self.hparams.lr) if self.hparams.lr is not None else float(self.hparams.blr)
-        )
+        initial_lr = (float(self.hparams.lr) if self.hparams.lr is not None else float(self.hparams.blr))
         optimizer = self.hparams.optimizer(params=param_groups, lr=initial_lr)
         return {"optimizer": optimizer}
 
