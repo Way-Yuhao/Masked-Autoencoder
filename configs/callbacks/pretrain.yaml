@@ -1,0 +1,19 @@
+defaults:
+  - model_checkpoint
+  - model_summary
+  - _self_
+
+model_checkpoint:
+  dirpath: ${paths.output_dir}/checkpoints
+  filename: "checkpoint-{epoch:04d}"
+  monitor: train/loss_epoch
+  save_last: true
+  save_top_k: 3
+  mode: min
+  auto_insert_metric_name: false
+  every_n_epochs: 1
+  save_on_train_epoch_end: true
+  save_weights_only: false
+
+model_summary:
+  max_depth: 3

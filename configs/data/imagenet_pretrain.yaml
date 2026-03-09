@@ -1,0 +1,15 @@
+_target_: src.data.imagenet_pretrain_datamodule.ImageNetPretrainDataModule
+
+data_dir: ${paths.data_dir}
+train_subdir: train
+
+input_size: 224
+min_scale: 0.2
+max_scale: 1.0
+interpolation: bicubic
+
+batch_size: 64
+num_workers: 10
+pin_memory: true
+drop_last: true
+persistent_workers: true

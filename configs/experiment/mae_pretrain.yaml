@@ -1,0 +1,42 @@
+# @package _global_
+
+# to execute this experiment run:
+# python src/train.py experiment=mae_pretrain
+
+defaults:
+  - override /data: imagenet_pretrain
+  - override /model: mae_pretrain
+  - override /callbacks: pretrain
+  - override /trainer: gpu
+  - override /logger: tensorboard
+
+task_name: "mae_pretrain"
+tags: ["mae", "pretrain", "imagenet"]
+
+seed: 0
+train: true
+test: false
+
+data:
+  # Override this from CLI for your environment if needed.
+  data_dir: /datasets01/imagenet_full_size/061417/
+
+model:
+  # Keeps parity with existing main_pretrain defaults.
+  accum_iter: 1
+  mask_ratio: 0.75
+  lr: null
+  blr: 1.0e-3
+  min_lr: 0.0
+  warmup_epochs: 40
+  net:
+    norm_pix_loss: false
+
+trainer:
+  min_epochs: 1
+  max_epochs: 400
+  precision: 16-mixed
+  log_every_n_steps: 20
+  num_sanity_val_steps: 0
+  limit_val_batches: 0
+  accumulate_grad_batches: ${model.accum_iter}
