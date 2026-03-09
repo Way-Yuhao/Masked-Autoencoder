@@ -18,7 +18,4 @@ min_lr: 0.0
 warmup_epochs: 40
 accum_iter: 1
 
-vis_log_every_n_steps: 500
-vis_num_images: 1
-
 compile: false

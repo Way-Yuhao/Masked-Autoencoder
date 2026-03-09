@@ -2,6 +2,7 @@ defaults:
   - model_checkpoint
   - model_summary
   - tqdm_progress_bar
+  - imagenet_vit_evaluator
   - _self_
 
 model_checkpoint:

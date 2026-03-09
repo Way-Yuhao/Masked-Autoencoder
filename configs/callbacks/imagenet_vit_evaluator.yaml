@@ -1,0 +1,10 @@
+# RGB ViT MAE reconstruction visualizer for W&B.
+
+imagenet_vit_evaluator:
+  _target_: src.callbacks.ImagenetViTEvaluator
+  train_log_img_freq: 10
+  val_log_img_freq: 10
+  check_freq_via: "epoch"
+  disable_image_logging: false
+  log_test_on_wandb: false
+  report_zero_baseline: true

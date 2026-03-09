@@ -1,12 +1,9 @@
 import math
 from typing import Any, Dict, Optional, Tuple
 
-import numpy as np
 import torch
 from lightning import LightningModule
-from lightning.pytorch.loggers import TensorBoardLogger
 from lightning_utilities.core.rank_zero import rank_zero_info
-from PIL import Image, ImageDraw, ImageFont
 
 try:
     from timm.optim import optim_factory
@@ -59,8 +56,6 @@ class MAEPretrainLitModule(LightningModule):
         min_lr: float = 0.0,
         warmup_epochs: int = 40,
         accum_iter: int = 1,
-        vis_log_every_n_steps: int = 500,
-        vis_num_images: int = 1,
         compile: bool = False,
     ) -> None:
         super().__init__()
@@ -112,7 +107,7 @@ class MAEPretrainLitModule(LightningModule):
         self,
         batch: Tuple[torch.Tensor, torch.Tensor],
         batch_idx: int,
-    ) -> torch.Tensor:
+    ) -> Dict[str, torch.Tensor]:
         samples, _ = batch
         loss, pred, mask = self.forward(samples)
 
@@ -126,8 +121,7 @@ class MAEPretrainLitModule(LightningModule):
         if _is_optimizer_step(batch_idx, total_steps, int(self.hparams.accum_iter)):
             self.log("train/lr", self.current_lr, on_step=True, on_epoch=False, prog_bar=True)
 
-        self._maybe_log_visualization(samples, pred, mask, batch_idx)
-        return loss
+        return {"loss": loss, "pred": pred.detach(), "mae_mask": mask.detach()}
 
     def configure_optimizers(self) -> Dict[str, Any]:
         param_groups = _build_param_groups(self.net, float(self.hparams.weight_decay))
@@ -181,104 +175,3 @@ class MAEPretrainLitModule(LightningModule):
                 group["lr"] = lr * group["lr_scale"]
             else:
                 group["lr"] = lr
-
-    def _maybe_log_visualization(
-        self,
-        samples: torch.Tensor,
-        pred: torch.Tensor,
-        mask: torch.Tensor,
-        batch_idx: int,
-    ) -> None:
-        if not self.trainer.is_global_zero:
-            return
-        if self.hparams.vis_log_every_n_steps <= 0 or self.hparams.vis_num_images <= 0:
-            return
-        if batch_idx % self.hparams.vis_log_every_n_steps != 0:
-            return
-
-        image = self._build_vis_4panel(samples=samples, pred=pred, mask=mask)
-        if image is None:
-            return
-
-        total_steps = int(self.trainer.num_training_batches)
-        vis_step = int(self.current_epoch * total_steps + batch_idx)
-        for logger in self.trainer.loggers:
-            if isinstance(logger, TensorBoardLogger):
-                logger.experiment.add_image("pretrain/vis_4panel", image, vis_step)
-
-    def _build_vis_4panel(
-        self,
-        samples: torch.Tensor,
-        pred: torch.Tensor,
-        mask: torch.Tensor,
-    ) -> Optional[torch.Tensor]:
-        vis_num = min(int(self.hparams.vis_num_images), samples.shape[0])
-        if vis_num <= 0:
-            return None
-
-        original = samples[:vis_num].float()
-        pred = pred[:vis_num].float()
-        mask = mask[:vis_num].float()
-
-        if getattr(self.net, "norm_pix_loss", False):
-            target = self.net.patchify(original)
-            mean = target.mean(dim=-1, keepdim=True)
-            var = target.var(dim=-1, keepdim=True)
-            pred = pred * (var + 1.0e-6).sqrt() + mean
-
-        reconstruction = self.net.unpatchify(pred)
-
-        patch_size = self.net.patch_embed.patch_size[0]
-        mask = mask.unsqueeze(-1).repeat(1, 1, patch_size**2 * 3)
-        mask = self.net.unpatchify(mask)
-
-        masked = original * (1.0 - mask)
-        reconstruction_with_visible = masked + reconstruction * mask
-
-        mean = torch.tensor([0.485, 0.456, 0.406], device=original.device).view(1, 3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225], device=original.device).view(1, 3, 1, 1)
-        panels = [
-            (original * std + mean).clamp(0, 1),
-            (masked * std + mean).clamp(0, 1),
-            (reconstruction * std + mean).clamp(0, 1),
-            (reconstruction_with_visible * std + mean).clamp(0, 1),
-        ]
-
-        border, caption_h = 4, 26
-        rows = []
-        for i in range(vis_num):
-            single = [panels[0][i]]
-            sep = torch.ones(3, panels[0].shape[-2], border, device=original.device)
-            for panel_idx in range(1, 4):
-                single.extend([sep, panels[panel_idx][i]])
-            rows.append(torch.cat(single, dim=2))
-
-        if len(rows) == 1:
-            grid = rows[0].detach().cpu()
-        else:
-            stacked = [rows[0]]
-            row_sep = torch.ones(3, border, rows[0].shape[2], device=original.device)
-            for row in rows[1:]:
-                stacked.extend([row_sep, row])
-            grid = torch.cat(stacked, dim=1).detach().cpu()
-
-        grid_uint8 = (grid.clamp(0, 1).numpy() * 255.0).astype(np.uint8)
-        grid_uint8 = np.transpose(grid_uint8, (1, 2, 0))
-        canvas = np.full(
-            (caption_h + grid_uint8.shape[0], grid_uint8.shape[1], 3),
-            255,
-            dtype=np.uint8,
-        )
-        canvas[caption_h:, :, :] = grid_uint8
-
-        image = Image.fromarray(canvas)
-        draw = ImageDraw.Draw(image)
-        font = ImageFont.load_default()
-        titles = ["original", "masked", "reconstruction", "reconstruction + visible"]
-        panel_w = int(panels[0].shape[-1])
-        starts = [0, panel_w + border, 2 * panel_w + 2 * border, 3 * panel_w + 3 * border]
-        for x_pos, title in zip(starts, titles):
-            draw.text((x_pos + 6, 6), title, fill=(0, 0, 0), font=font)
-
-        output = np.transpose(np.asarray(image), (2, 0, 1))
-        return torch.from_numpy(output).float() / 255.0
