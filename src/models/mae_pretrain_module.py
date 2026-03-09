@@ -1,11 +1,13 @@
 from typing import Any, Dict, Optional, Tuple
-
 import torch
 from lightning import LightningModule
 from lightning_utilities.core.rank_zero import rank_zero_info
-
 from src.utils.masked_autoencoder.optim import build_param_groups, resolve_learning_rate
 from src.utils.masked_autoencoder.scheduler import WarmupCosineLR
+from src.utils import RankedLogger
+
+__author__ = "yuhao liu"
+log = RankedLogger(name=__name__, rank_zero_only=True)
 
 
 def _to_base_optimizer(optimizer: Any) -> torch.optim.Optimizer:
@@ -19,7 +21,6 @@ def _is_optimizer_step(batch_idx: int, total_steps: int, accum_iter: int) -> boo
 
 
 class MAEPretrainLitModule(LightningModule):
-
     def __init__(self, net: torch.nn.Module, optimizer: torch.optim.Optimizer, scheduler: Optional[Any] = None,
                  mask_ratio: float = 0.75, weight_decay: float = 0.05, lr: Optional[float] = None, blr: float = 1e-3,
                  accum_iter: int = 1, compile: bool = False) -> None:
@@ -75,20 +76,30 @@ class MAEPretrainLitModule(LightningModule):
         self.current_lr = self.mae_scheduler.step(epoch_progress)
 
     def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> Dict[str, torch.Tensor]:
-        samples, _ = batch
-        loss, pred, mask = self.forward(samples)
-
-        if not torch.isfinite(loss):
-            raise RuntimeError(f"Loss is {loss.item()}, stopping training.")
+        loss, pred, mask, samples = self._shared_step(batch)
 
         self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True,
                  batch_size=samples.shape[0])
-
         total_steps = int(self.trainer.num_training_batches)
         if _is_optimizer_step(batch_idx, total_steps, self._resolve_accum_iter()):
             self.log("train/lr", self.current_lr, on_step=True, on_epoch=False, prog_bar=True)
 
         return {"loss": loss, "pred": pred.detach(), "mae_mask": mask.detach()}
+
+    def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> Dict[str, torch.Tensor]:
+        del batch_idx
+        loss, pred, mask, samples = self._shared_step(batch)
+
+        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True,
+                 batch_size=samples.shape[0])
+        return {"loss": loss, "pred": pred.detach(), "mae_mask": mask.detach()}
+
+    def _shared_step(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        samples, _ = batch
+        loss, pred, mask = self.forward(samples)
+        if not torch.isfinite(loss):
+            raise RuntimeError(f"Loss is {loss.item()}, stopping training.")
+        return loss, pred, mask, samples
 
     def configure_optimizers(self) -> Dict[str, Any]:
         param_groups = build_param_groups(self.net, float(self.hparams.weight_decay))

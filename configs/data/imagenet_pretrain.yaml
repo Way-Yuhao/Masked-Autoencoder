@@ -2,6 +2,7 @@ _target_: src.data.imagenet_pretrain_datamodule.ImageNetPretrainDataModule
 
 data_dir: ${paths.data_dir}
 train_subdir: train
+val_subdir: val
 
 input_size: 224
 min_scale: 0.2

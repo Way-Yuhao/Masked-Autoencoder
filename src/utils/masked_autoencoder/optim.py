@@ -1,14 +1,7 @@
 from typing import Any, Optional, Tuple
 
 import torch
-
-try:
-    from timm.optim import optim_factory
-except Exception:  # pragma: no cover - API location changed across timm versions
-    try:
-        import timm.optim.optim_factory as optim_factory  # type: ignore[no-redef]
-    except Exception:  # pragma: no cover - fallback below handles no helper API
-        optim_factory = None
+from timm.optim import optim_factory
 
 
 def build_param_groups(model: torch.nn.Module, weight_decay: float) -> list[dict[str, Any]]:

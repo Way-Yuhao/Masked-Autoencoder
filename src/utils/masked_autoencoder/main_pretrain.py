@@ -26,16 +26,10 @@ import timm
 
 if timm.__version__ != "0.3.2":
     print(f"Warning: timm=={timm.__version__} (repo originally pinned to 0.3.2).")
-try:
-    from timm.optim import optim_factory
-except Exception:
-    import timm.optim.optim_factory as optim_factory
-
+from timm.optim import optim_factory
 from src.utils.masked_autoencoder.util import misc
 from src.utils.masked_autoencoder.util.misc import NativeScalerWithGradNormCount as NativeScaler
-
 from src.utils.masked_autoencoder import models_mae
-
 from src.utils.masked_autoencoder.engine_pretrain import train_one_epoch
 
 
