@@ -18,8 +18,7 @@ train: true
 test: false
 
 data:
-  # Override this from CLI for your environment if needed.
-  data_dir: /datasets01/imagenet_full_size/061417/
+  data_dir: ${local.image_net_dir}
 
 model:
   # Keeps parity with existing main_pretrain defaults.

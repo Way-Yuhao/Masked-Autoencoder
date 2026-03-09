@@ -39,6 +39,27 @@ from src.utils import (
 log = RankedLogger(__name__, rank_zero_only=True)
 
 
+def _configure_torch_float32_matmul_precision(cfg: DictConfig) -> None:
+    value = cfg.get("torch_float32_matmul_precision", None)
+    if value is None:
+        return
+    if not isinstance(value, str):
+        raise ValueError(
+            "Invalid type for `torch_float32_matmul_precision`: expected string or null, "
+            f"got {type(value).__name__}."
+        )
+    value = value.strip().lower()
+    allowed = {"highest", "high", "medium"}
+    if value not in allowed:
+        raise ValueError(
+            "Invalid value for `torch_float32_matmul_precision`: "
+            f"`{value}`. Allowed values are: highest, high, medium, or null."
+        )
+    torch.set_float32_matmul_precision(value)
+    log.info(f"Set torch float32 matmul precision to `{value}`.")
+    return
+
+
 @task_wrapper
 def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Trains the model. Can additionally evaluate on a testset, using best weights obtained during
@@ -53,6 +74,8 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
         L.seed_everything(cfg.seed, workers=True)
+
+    _configure_torch_float32_matmul_precision(cfg)
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
@@ -115,13 +138,12 @@ def main(cfg: DictConfig) -> Optional[float]:
     # apply extra utilities
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
     extras(cfg)
-
     # train the model
     metric_dict, _ = train(cfg)
-
     # safely retrieve metric value for hydra-based hyperparameter optimization
-    metric_value = get_metric_value(metric_dict=metric_dict, metric_name=cfg.get("optimized_metric"))
-
+    metric_value = get_metric_value(
+        metric_dict=metric_dict, metric_name=cfg.get("optimized_metric")
+    )
     # return optimized metric
     return metric_value
 

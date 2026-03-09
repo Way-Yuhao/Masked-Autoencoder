@@ -47,3 +47,6 @@ ckpt_path: null
 
 # seed for random number generators in pytorch, numpy and python.random
 seed: null
+
+# torch float32 matmul precision mode: highest | high | medium | null
+torch_float32_matmul_precision: high
