@@ -10,7 +10,7 @@ from src.utils import RankedLogger
 from src.callbacks.abstract_frequency_logging_callback import AbstractFrequencyLoggingCallback
 
 __author__ = "yuhao liu"
-log = RankedLogger(name=__name__, rank_zero_only=False)
+log = RankedLogger(name=__name__, rank_zero_only=True)
 
 
 class ImagenetViTEvaluator(AbstractFrequencyLoggingCallback):
