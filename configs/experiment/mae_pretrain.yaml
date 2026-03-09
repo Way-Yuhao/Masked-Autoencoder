@@ -12,7 +12,7 @@ defaults:
 task_name: "mae_pretrain"
 tags: ["mae", "pretrain", "imagenet"]
 
-seed: 0
+#seed: 0
 train: true
 test: false
 
@@ -25,8 +25,7 @@ model:
   mask_ratio: 0.75
   lr: null
   blr: 1.0e-3
-  min_lr: 0.0
-  warmup_epochs: 40
+
   net:
     norm_pix_loss: false
 

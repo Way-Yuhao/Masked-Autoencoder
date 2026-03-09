@@ -1,4 +1,5 @@
 _target_: src.models.mae_pretrain_module.MAEPretrainLitModule
+compile: false
 
 net:
   _target_: src.utils.masked_autoencoder.models_mae.mae_vit_large_patch16
@@ -9,13 +10,17 @@ optimizer:
   _partial_: true
   betas: [0.9, 0.95]
 
+scheduler:
+  _target_: src.utils.masked_autoencoder.scheduler.WarmupCosineLR
+  _partial_: true
+  warmup_epochs: 40
+  max_epochs: ${trainer.max_epochs}
+  eta_min: 0.0
+
 mask_ratio: 0.75
 weight_decay: 0.05
 
 lr: null  # to be determined at run time (scales with batch size)
 blr: 1.0e-3
-min_lr: 0.0
-warmup_epochs: 40
 accum_iter: 1
 
-compile: false
