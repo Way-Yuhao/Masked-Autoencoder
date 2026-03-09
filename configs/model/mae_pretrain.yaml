@@ -1,7 +1,7 @@
 _target_: src.models.mae_pretrain_module.MAEPretrainLitModule
 
 net:
-  _target_: models_mae.mae_vit_large_patch16
+  _target_: src.utils.masked_autoencoder.models_mae.mae_vit_large_patch16
   norm_pix_loss: false
 
 optimizer:

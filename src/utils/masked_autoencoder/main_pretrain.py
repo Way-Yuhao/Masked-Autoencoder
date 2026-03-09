@@ -31,12 +31,12 @@ try:
 except Exception:
     import timm.optim.optim_factory as optim_factory
 
-import util.misc as misc
-from util.misc import NativeScalerWithGradNormCount as NativeScaler
+from src.utils.masked_autoencoder.util import misc
+from src.utils.masked_autoencoder.util.misc import NativeScalerWithGradNormCount as NativeScaler
 
-import models_mae
+from src.utils.masked_autoencoder import models_mae
 
-from engine_pretrain import train_one_epoch
+from src.utils.masked_autoencoder.engine_pretrain import train_one_epoch
 
 
 def build_param_groups(model, weight_decay):

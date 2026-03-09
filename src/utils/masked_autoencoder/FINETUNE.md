@@ -31,7 +31,7 @@ As a sanity check, run evaluation using our ImageNet **fine-tuned** models:
 
 Evaluate ViT-Base in a single GPU (`${IMAGENET_DIR}` is a directory containing `{train, val}` sets of ImageNet):
 ```
-python main_finetune.py --eval --resume mae_finetuned_vit_base.pth --model vit_base_patch16 --batch_size 16 --data_path ${IMAGENET_DIR}
+python src/utils/masked_autoencoder/main_finetune.py --eval --resume mae_finetuned_vit_base.pth --model vit_base_patch16 --batch_size 16 --data_path ${IMAGENET_DIR}
 ```
 This should give:
 ```
@@ -40,7 +40,7 @@ This should give:
 
 Evaluate ViT-Large:
 ```
-python main_finetune.py --eval --resume mae_finetuned_vit_large.pth --model vit_large_patch16 --batch_size 16 --data_path ${IMAGENET_DIR}
+python src/utils/masked_autoencoder/main_finetune.py --eval --resume mae_finetuned_vit_large.pth --model vit_large_patch16 --batch_size 16 --data_path ${IMAGENET_DIR}
 ```
 This should give:
 ```
@@ -49,7 +49,7 @@ This should give:
 
 Evaluate ViT-Huge:
 ```
-python main_finetune.py --eval --resume mae_finetuned_vit_huge.pth --model vit_huge_patch14 --batch_size 16 --data_path ${IMAGENET_DIR}
+python src/utils/masked_autoencoder/main_finetune.py --eval --resume mae_finetuned_vit_huge.pth --model vit_huge_patch14 --batch_size 16 --data_path ${IMAGENET_DIR}
 ```
 This should give:
 ```
@@ -62,7 +62,7 @@ Get our pre-trained checkpoints from [here](https://github.com/fairinternal/mae/
 
 To fine-tune with **multi-node distributed training**, run the following on 4 nodes with 8 GPUs each:
 ```
-python submitit_finetune.py \
+python src/utils/masked_autoencoder/submitit_finetune.py \
     --job_dir ${JOB_DIR} \
     --nodes 4 \
     --batch_size 32 \
@@ -81,7 +81,7 @@ python submitit_finetune.py \
 
 Script for ViT-Large:
 ```
-python submitit_finetune.py \
+python src/utils/masked_autoencoder/submitit_finetune.py \
     --job_dir ${JOB_DIR} \
     --nodes 4 --use_volta32 \
     --batch_size 32 \
@@ -97,7 +97,7 @@ python submitit_finetune.py \
 
 Script for ViT-Huge:
 ```
-python submitit_finetune.py \
+python src/utils/masked_autoencoder/submitit_finetune.py \
     --job_dir ${JOB_DIR} \
     --nodes 8 --use_volta32 \
     --batch_size 16 \
@@ -112,7 +112,7 @@ python submitit_finetune.py \
 
 To fine-tune our pre-trained ViT-Base with **single-node training**, run the following on 1 node with 8 GPUs:
 ```
-OMP_NUM_THREADS=1 python -m torch.distributed.launch --nproc_per_node=8 main_finetune.py \
+OMP_NUM_THREADS=1 python -m torch.distributed.launch --nproc_per_node=8 src/utils/masked_autoencoder/main_finetune.py \
     --accum_iter 4 \
     --batch_size 32 \
     --model vit_base_patch16 \
@@ -136,7 +136,7 @@ OMP_NUM_THREADS=1 python -m torch.distributed.launch --nproc_per_node=8 main_fin
 
 Run the following on 4 nodes with 8 GPUs each:
 ```
-python submitit_linprobe.py \
+python src/utils/masked_autoencoder/submitit_linprobe.py \
     --job_dir ${JOB_DIR} \
     --nodes 4 \
     --batch_size 512 \

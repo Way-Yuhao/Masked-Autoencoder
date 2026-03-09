@@ -18,8 +18,8 @@ import torch
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-import util.misc as misc
-import util.lr_sched as lr_sched
+from src.utils.masked_autoencoder.util import misc
+from src.utils.masked_autoencoder.util import lr_sched
 
 
 def _select_progress_backend():
