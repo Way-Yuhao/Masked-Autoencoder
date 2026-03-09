@@ -1,5 +1,6 @@
 defaults:
-  - override hydra/launcher: submitit_slurm
+  - default
+  - override /hydra/launcher: submitit_slurm
 
 # slurm launcher configuration
 launcher:
