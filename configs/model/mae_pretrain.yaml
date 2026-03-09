@@ -21,6 +21,6 @@ mask_ratio: 0.75
 weight_decay: 0.05
 
 lr: null  # to be determined at run time (scales with batch size)
-blr: 1.0e-3
+blr: 1.5e-4
 accum_iter: 1
 

@@ -21,17 +21,13 @@ data:
 
 model:
   # Keeps parity with existing main_pretrain defaults.
-  accum_iter: 1
-  mask_ratio: 0.75
-  lr: null
   blr: 1.0e-3
-
   net:
     norm_pix_loss: false
 
 trainer:
   min_epochs: 1
-  max_epochs: 400
+  max_epochs: 1000
   precision: 16-mixed
   log_every_n_steps: 20
   num_sanity_val_steps: 0
