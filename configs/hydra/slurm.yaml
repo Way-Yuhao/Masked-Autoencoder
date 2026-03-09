@@ -1,5 +1,7 @@
 defaults:
   - default
+  - override launcher: submitit_slurm
+  - _self_
 
 # slurm launcher configuration
 launcher:
