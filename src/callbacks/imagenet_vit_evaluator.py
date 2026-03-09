@@ -1,21 +1,19 @@
 from typing import Any, Optional, Sequence
-
 import numpy as np
 import torch
 import wandb
 from PIL import Image, ImageDraw, ImageFont
 from lightning import LightningModule, Trainer
-from lightning.pytorch.callbacks import Callback
 from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 from lightning.pytorch.utilities.types import STEP_OUTPUT
-
 from src.utils import RankedLogger
+from src.callbacks.abstract_frequency_logging_callback import AbstractFrequencyLoggingCallback
 
 __author__ = "yuhao liu"
 log = RankedLogger(name=__name__, rank_zero_only=False)
 
 
-class ImagenetViTEvaluator(Callback):
+class ImagenetViTEvaluator(AbstractFrequencyLoggingCallback):
     """RGB ViT MAE reconstruction visualizer and baseline reporter."""
 
     def __init__(self, train_log_img_freq: int = 10, val_log_img_freq: int = 10,
@@ -23,48 +21,28 @@ class ImagenetViTEvaluator(Callback):
                  log_test_on_wandb: bool = False, report_zero_baseline: bool = True,
                  vis_num_images: int = 1, mean: Sequence[float] = (0.485, 0.456, 0.406),
                  std: Sequence[float] = (0.229, 0.224, 0.225)) -> None:
-        super().__init__()
+        super().__init__(stage_log_freqs={"train": train_log_img_freq, "val": val_log_img_freq},
+                         check_freq_via=check_freq_via, log_test_once=log_test_on_wandb)
         self.train_log_img_freq = train_log_img_freq
         self.val_log_img_freq = val_log_img_freq
-        self.check_freq_via = check_freq_via
         self.disable_image_logging = disable_image_logging
         self.log_test_on_wandb = log_test_on_wandb
         self.report_zero_baseline = report_zero_baseline
         self.vis_num_images = vis_num_images
         self.mean = tuple(float(v) for v in mean)
         self.std = tuple(float(v) for v in std)
-
-        self.freqs = {"train_img": train_log_img_freq, "val_img": val_log_img_freq}
-        self.next_log_idx = {"train_img": 0, "val_img": 0}
         self._warned_missing_keys = False
         log.info("Imagenet ViT Evaluator callback initialized.")
+        return
 
-    def on_train_batch_end(self, trainer: Trainer, pl_module: LightningModule,
-                           outputs: STEP_OUTPUT, batch: Any, batch_idx: int) -> None:
-        del batch_idx
-        if self._check_frequency(trainer, "train_img", update=True, skip_sanity=True):
-            self._log_reconstruction(trainer=trainer, pl_module=pl_module, outputs=outputs,
-                                     batch=batch, stage="train")
-        self.report_baseline_metric(trainer=trainer, pl_module=pl_module, outputs=outputs,
-                                    batch=batch, stage="train")
+    def handle_batch_end(self, trainer: Trainer, pl_module: LightningModule, outputs: STEP_OUTPUT,
+                         batch: Any, stage: str) -> None:
+        if stage in {"train", "val"}:
+            self.report_baseline_metric(trainer=trainer, pl_module=pl_module, outputs=outputs, batch=batch, stage=stage)
 
-    def on_validation_batch_end(self, trainer: Trainer, pl_module: LightningModule,
-                                outputs: STEP_OUTPUT, batch: Any, batch_idx: int,
-                                dataloader_idx: int = 0) -> None:
-        del batch_idx, dataloader_idx
-        if self._check_frequency(trainer, "val_img", update=True, skip_sanity=True):
-            self._log_reconstruction(trainer=trainer, pl_module=pl_module, outputs=outputs,
-                                     batch=batch, stage="val")
-        self.report_baseline_metric(trainer=trainer, pl_module=pl_module, outputs=outputs,
-                                    batch=batch, stage="val")
-
-    def on_test_batch_end(self, trainer: Trainer, pl_module: LightningModule,
-                          outputs: STEP_OUTPUT, batch: Any, batch_idx: int,
-                          dataloader_idx: int = 0) -> None:
-        del dataloader_idx
-        if self.log_test_on_wandb and batch_idx == 0:
-            self._log_reconstruction(trainer=trainer, pl_module=pl_module, outputs=outputs,
-                                     batch=batch, stage="test")
+    def log_scheduled_batch(self, trainer: Trainer, pl_module: LightningModule,
+                            outputs: STEP_OUTPUT, batch: Any, stage: str) -> None:
+        self._log_reconstruction(trainer=trainer, pl_module=pl_module, outputs=outputs, batch=batch, stage=stage)
 
     def _log_reconstruction(self, trainer: Trainer, pl_module: LightningModule,
                             outputs: STEP_OUTPUT, batch: Any, stage: str) -> None:
@@ -86,31 +64,21 @@ class ImagenetViTEvaluator(Callback):
         if mae_model is None:
             log.warning("Unable to find MAE model with patchify/unpatchify for visualization.")
             return
-
         with torch.no_grad():
             vis_image = self._build_vis_4panel(mae_model=mae_model, samples=samples.detach(),
                                                pred=pred.detach(), mask=mask.detach())
-
         if vis_image is None:
             return
 
         loss = outputs.get("loss")
-        loss_val = (
-            float(loss.detach().float().item())
-            if isinstance(loss, torch.Tensor)
-            else float("nan")
-        )
+        loss_val = (float(loss.detach().float().item()) if isinstance(loss, torch.Tensor) else float("nan"))
         mask_ratio = float(mask.detach().float().mean().item())
-        caption = (
-            f"stage={stage}, epoch={trainer.current_epoch}, step={trainer.global_step}, "
-            f"loss={loss_val:.6f}, mask_ratio={mask_ratio:.3f}"
-        )
+        caption = (f"stage={stage}, epoch={trainer.current_epoch}, step={trainer.global_step}, "
+                   f"loss={loss_val:.6f}, mask_ratio={mask_ratio:.3f}")
 
-        self._log_image_to_loggers(trainer=trainer, vis_image=vis_image, stage=stage,
-                                   caption=caption)
+        self._log_image_to_loggers(trainer=trainer, vis_image=vis_image, stage=stage, caption=caption)
 
-    def _log_image_to_loggers(self, trainer: Trainer, vis_image: torch.Tensor, stage: str,
-                              caption: str) -> None:
+    def _log_image_to_loggers(self, trainer: Trainer, vis_image: torch.Tensor, stage: str, caption: str) -> None:
         step = int(trainer.global_step)
         for logger in trainer.loggers:
             if isinstance(logger, TensorBoardLogger):
@@ -119,42 +87,34 @@ class ImagenetViTEvaluator(Callback):
             if not isinstance(logger, WandbLogger):
                 continue
 
-            image_uint8 = (
-                (vis_image.clamp(0, 1).permute(1, 2, 0).cpu().numpy() * 255.0).astype(np.uint8)
-            )
-            logger.experiment.log(
-                {f"{stage}_vis/mae_rgb_reconstruction": wandb.Image(image_uint8, caption=caption)},
-                step=step,
-            )
+            image_uint8 = ((vis_image.clamp(0, 1).permute(1, 2, 0).cpu().numpy() * 255.0).astype(np.uint8))
+            logger.experiment.log({f"{stage}_vis/mae_rgb_reconstruction": wandb.Image(image_uint8, caption=caption)},
+                                  step=step)
 
     def report_baseline_metric(self, trainer: Trainer, pl_module: LightningModule,
                                outputs: STEP_OUTPUT, batch: Any, stage: str) -> None:
         del trainer
         if not self.report_zero_baseline or not isinstance(outputs, dict):
             return
-
         loss = outputs.get("loss")
         if not isinstance(loss, torch.Tensor):
             return
-
-        zero_baseline = self._masked_zero_baseline(
-            pl_module=pl_module, outputs=outputs, batch=batch)
+        zero_baseline = self._masked_zero_baseline(pl_module=pl_module, outputs=outputs, batch=batch)
         if not np.isfinite(zero_baseline):
             return
 
         model_loss = float(loss.detach().float().item())
         ratio = model_loss / zero_baseline if zero_baseline > 0 else float("nan")
         batch_size = self._extract_batch_size(batch)
-        pl_module.log_dict(
-            {
+        pl_module.log_dict({
                 f"{stage}/model_loss": model_loss,
                 f"{stage}/zero_baseline": zero_baseline,
                 f"{stage}/loss_over_zero_baseline": ratio,
             },
-            on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True, batch_size=batch_size)
+            on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True, batch_size=batch_size,
+        )
 
-    def _masked_zero_baseline(self, pl_module: LightningModule, outputs: STEP_OUTPUT,
-                              batch: Any) -> float:
+    def _masked_zero_baseline(self, pl_module: LightningModule, outputs: STEP_OUTPUT, batch: Any) -> float:
         if not isinstance(outputs, dict):
             return float("nan")
 
@@ -180,11 +140,7 @@ class ImagenetViTEvaluator(Callback):
 
     @staticmethod
     def _extract_images(batch: Any) -> Optional[torch.Tensor]:
-        if (
-            isinstance(batch, (tuple, list))
-            and len(batch) > 0
-            and isinstance(batch[0], torch.Tensor)
-        ):
+        if isinstance(batch, (tuple, list)) and len(batch) > 0 and isinstance(batch[0], torch.Tensor):
             return batch[0]
         if isinstance(batch, dict):
             for key in ("images", "image", "x", "env_features"):
@@ -227,12 +183,10 @@ class ImagenetViTEvaluator(Callback):
 
         masked = original * (1.0 - mask)
         reconstruction_with_visible = masked + reconstruction * mask
-        panels = [
-            self._to_rgb_tensor(original),
-            self._to_rgb_tensor(masked),
-            self._to_rgb_tensor(reconstruction),
-            self._to_rgb_tensor(reconstruction_with_visible),
-        ]
+        panels = [self._to_rgb_tensor(original),
+                  self._to_rgb_tensor(masked),
+                  self._to_rgb_tensor(reconstruction),
+                  self._to_rgb_tensor(reconstruction_with_visible)]
 
         border, caption_h = 4, 26
         rows = []
@@ -254,11 +208,7 @@ class ImagenetViTEvaluator(Callback):
 
         grid_uint8 = (grid.clamp(0, 1).numpy() * 255.0).astype(np.uint8)
         grid_uint8 = np.transpose(grid_uint8, (1, 2, 0))
-        canvas = np.full(
-            (caption_h + grid_uint8.shape[0], grid_uint8.shape[1], 3),
-            255,
-            dtype=np.uint8,
-        )
+        canvas = np.full((caption_h + grid_uint8.shape[0], grid_uint8.shape[1], 3),255, dtype=np.uint8)
         canvas[caption_h:, :, :] = grid_uint8
 
         image = Image.fromarray(canvas)
@@ -277,26 +227,3 @@ class ImagenetViTEvaluator(Callback):
         mean = x.new_tensor(self.mean).view(1, 3, 1, 1)
         std = x.new_tensor(self.std).view(1, 3, 1, 1)
         return (x * std + mean).clamp(0, 1)
-
-    def _check_frequency(self, trainer: Trainer, key: str, update: bool = True,
-                         skip_sanity: bool = True) -> bool:
-        if self.freqs[key] == -1:
-            return False
-        if skip_sanity and trainer.current_epoch == 0:
-            return False
-
-        if self.check_freq_via == "global_step":
-            check_idx = trainer.global_step
-        elif self.check_freq_via == "epoch":
-            check_idx = trainer.current_epoch
-        else:
-            raise ValueError(
-                f"Invalid check frequency method: {self.check_freq_via}. "
-                "Expected 'global_step' or 'epoch'."
-            )
-
-        if check_idx >= self.next_log_idx[key]:
-            if update:
-                self.next_log_idx[key] = check_idx + self.freqs[key]
-            return True
-        return False

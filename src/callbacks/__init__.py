@@ -1,3 +1,4 @@
+from .abstract_frequency_logging_callback import AbstractFrequencyLoggingCallback
 from .imagenet_vit_evaluator import ImagenetViTEvaluator
 
 try:

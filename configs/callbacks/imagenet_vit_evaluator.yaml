@@ -7,4 +7,4 @@ imagenet_vit_evaluator:
   check_freq_via: "epoch"
   disable_image_logging: false
   log_test_on_wandb: false
-  report_zero_baseline: true
+  report_zero_baseline: false
