@@ -21,7 +21,7 @@ class RecordingFrequencyCallback(AbstractFrequencyLoggingCallback):
         self.handled: list[tuple[str, int, int]] = []
         self.logged: list[tuple[str, int, int]] = []
 
-    def handle_batch_end(self, trainer, pl_module, outputs, batch, stage: str) -> None:
+    def custom_handle_batch_end(self, trainer, pl_module, outputs, batch, stage: str) -> None:
         del pl_module, outputs, batch
         self.handled.append((stage, int(trainer.current_epoch), int(trainer.global_step)))
 
@@ -133,25 +133,6 @@ def test_imagenet_vit_evaluator_config_instantiates() -> None:
     assert isinstance(callback, ImagenetViTEvaluator)
 
 
-def test_imagenet_vit_evaluator_reports_baseline_when_image_logging_skips(monkeypatch) -> None:
-    callback = ImagenetViTEvaluator(train_log_img_freq=5, val_log_img_freq=5)
-    trainer = make_trainer(epoch=0)
-    baseline_stages = []
-    image_stages = []
-    monkeypatch.setattr(
-        callback, "report_baseline_metric",
-        lambda trainer, pl_module, outputs, batch, stage: baseline_stages.append(stage))
-    monkeypatch.setattr(
-        callback, "_log_reconstruction",
-        lambda trainer, pl_module, outputs, batch, stage: image_stages.append(stage))
-
-    callback.on_train_batch_end(trainer, object(), {}, object(), batch_idx=0)
-    callback.on_validation_batch_end(trainer, object(), {}, object(), batch_idx=0)
-
-    assert baseline_stages == ["train", "val"]
-    assert image_stages == []
-
-
 def test_imagenet_vit_evaluator_scheduled_logging_calls_reconstruction(monkeypatch) -> None:
     callback = ImagenetViTEvaluator(train_log_img_freq=1, val_log_img_freq=1)
     trainer = make_trainer(epoch=1)
@@ -159,7 +140,6 @@ def test_imagenet_vit_evaluator_scheduled_logging_calls_reconstruction(monkeypat
     monkeypatch.setattr(
         callback, "_log_reconstruction",
         lambda trainer, pl_module, outputs, batch, stage: image_stages.append(stage))
-    monkeypatch.setattr(callback, "report_baseline_metric", lambda *args, **kwargs: None)
 
     callback.on_train_batch_end(trainer, object(), {}, object(), batch_idx=0)
     callback.on_validation_batch_end(trainer, object(), {}, object(), batch_idx=0)
