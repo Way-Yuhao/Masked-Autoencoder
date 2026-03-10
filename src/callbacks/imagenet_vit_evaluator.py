@@ -74,7 +74,6 @@ class ImagenetViTEvaluator(AbstractFrequencyLoggingCallback):
 
         self._log_image_to_loggers(trainer=trainer, vis_image=vis_image, stage=stage, caption=caption)
 
-
     def _log_image_to_loggers(self, trainer: Trainer, vis_image: torch.Tensor, stage: str, caption: str) -> None:
         step = int(trainer.global_step)
         for logger in trainer.loggers:
@@ -85,8 +84,7 @@ class ImagenetViTEvaluator(AbstractFrequencyLoggingCallback):
                 continue
 
             image_uint8 = ((vis_image.clamp(0, 1).permute(1, 2, 0).cpu().numpy() * 255.0).astype(np.uint8))
-            logger.experiment.log({f"{stage}_vis/mae_rgb_reconstruction": wandb.Image(image_uint8, caption=caption)},
-                                  step=step)
+            logger.experiment.log({f"{stage}_vis/mae_rgb_reconstruction": wandb.Image(image_uint8, caption=caption)})
 
     @staticmethod
     def _extract_images(batch: Any) -> Optional[torch.Tensor]:
