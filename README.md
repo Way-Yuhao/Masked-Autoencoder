@@ -24,6 +24,13 @@ _Suggestions are always welcome!_
 
 <br>
 
+## Project Note
+
+This repository is a PyTorch Lightning + Hydra version of the original Masked Autoencoder (MAE)
+implementation from Facebook Research: [facebookresearch/mae](https://github.com/facebookresearch/mae).
+
+<br>
+
 ## 📌  Introduction
 
 **Why you might want to use it:**
