@@ -21,7 +21,7 @@ data:
 
 model:
   # Keeps parity with existing main_pretrain defaults.
-  blr: 1.0e-3
+  blr: 1.5e-4
   net:
     norm_pix_loss: false
 

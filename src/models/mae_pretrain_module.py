@@ -1,7 +1,7 @@
 from typing import Any, Dict, Optional, Tuple
 import torch
 from lightning import LightningModule
-from lightning_utilities.core.rank_zero import rank_zero_info
+from lightning_utilities.core.rank_zero import rank_zero_info, rank_zero_warn
 from src.utils.masked_autoencoder.optim import build_param_groups, resolve_learning_rate
 from src.utils.masked_autoencoder.scheduler import WarmupCosineLR
 from src.utils import RankedLogger
@@ -56,13 +56,23 @@ class MAEPretrainLitModule(LightningModule):
 
         self._set_lr(optimizer, self.actual_lr)
         if self.hparams.scheduler is not None:
-            self.mae_scheduler = self.hparams.scheduler(optimizer=optimizer, base_lr=self.actual_lr)
+            self.mae_scheduler = self.hparams.scheduler(
+                optimizer=optimizer, base_lr=self.actual_lr
+            )
         base_lr = self.actual_lr * 256.0 / self.effective_batch_size
 
         rank_zero_info(f"base lr: {base_lr:.2e}")
         rank_zero_info(f"actual lr: {self.actual_lr:.2e}")
         rank_zero_info(f"accumulate grad iterations: {accum_iter}")
         rank_zero_info(f"effective batch size: {self.effective_batch_size}")
+        if self.actual_lr > 1.0e-2:
+            rank_zero_warn(
+                "Resolved learning rate is unusually high for fp16 MAE pretraining. "
+                f"actual_lr={self.actual_lr:.3e}, blr={float(self.hparams.blr):.3e}, "
+                f"batch_size_per_device={batch_size}, world_size={world_size}, accum_iter={accum_iter}. "
+                "If training becomes unstable, lower `model.blr`, reduce batch size, or use "
+                "bf16 mixed precision."
+            )
 
     def on_train_batch_start(self, batch: Any, batch_idx: int) -> None:
         del batch
@@ -76,7 +86,9 @@ class MAEPretrainLitModule(LightningModule):
         self.current_lr = self.mae_scheduler.step(epoch_progress)
 
     def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> Dict[str, torch.Tensor]:
-        loss, pred, mask, samples = self._shared_step(batch)
+        loss, pred, mask, samples = self._shared_step(
+            batch=batch, stage="train", batch_idx=batch_idx
+        )
 
         self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True,
                  batch_size=samples.shape[0])
@@ -87,18 +99,36 @@ class MAEPretrainLitModule(LightningModule):
         return {"loss": loss, "pred": pred.detach(), "mae_mask": mask.detach()}
 
     def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> Dict[str, torch.Tensor]:
-        del batch_idx
-        loss, pred, mask, samples = self._shared_step(batch)
+        loss, pred, mask, samples = self._shared_step(batch=batch, stage="val", batch_idx=batch_idx)
 
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True,
                  batch_size=samples.shape[0])
         return {"loss": loss, "pred": pred.detach(), "mae_mask": mask.detach()}
 
-    def _shared_step(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _shared_step(self, batch: Tuple[torch.Tensor, torch.Tensor], stage: str, batch_idx: int
+                     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         samples, _ = batch
+        if not torch.isfinite(samples).all():
+            raise RuntimeError(
+                "Input batch contains non-finite values before MAE forward pass. "
+                f"stage={stage}, batch_idx={batch_idx}, rank={int(self.global_rank)}, "
+                f"epoch={int(self.current_epoch)}, global_step={int(self.global_step)}. "
+                f"{self._tensor_stats('samples', samples)}"
+            )
+
         loss, pred, mask = self.forward(samples)
         if not torch.isfinite(loss):
-            raise RuntimeError(f"Loss is {loss.item()}, stopping training.")
+            loss_value = float(loss.detach().float().item())
+            raise RuntimeError(
+                "Loss became non-finite during MAE training. "
+                f"stage={stage}, batch_idx={batch_idx}, rank={int(self.global_rank)}, "
+                f"epoch={int(self.current_epoch)}, global_step={int(self.global_step)}, "
+                f"loss={loss_value}, current_lr={self.current_lr:.6e}, "
+                f"actual_lr={(self.actual_lr if self.actual_lr is not None else float('nan')):.6e}. "
+                f"{self._tensor_stats('samples', samples)} "
+                f"{self._tensor_stats('pred', pred)} "
+                f"{self._tensor_stats('mask', mask)}"
+            )
         return loss, pred, mask, samples
 
     def configure_optimizers(self) -> Dict[str, Any]:
@@ -129,3 +159,24 @@ class MAEPretrainLitModule(LightningModule):
                 group["lr"] = lr * group["lr_scale"]
             else:
                 group["lr"] = lr
+
+    @staticmethod
+    def _tensor_stats(name: str, tensor: torch.Tensor) -> str:
+        tensor_f = tensor.detach().float()
+        finite_mask = torch.isfinite(tensor_f)
+        finite_count = int(finite_mask.sum().item())
+        total_count = int(tensor_f.numel())
+        nan_count = int(torch.isnan(tensor_f).sum().item())
+        inf_count = int(torch.isinf(tensor_f).sum().item())
+        if finite_count > 0:
+            finite_values = tensor_f[finite_mask]
+            min_val = float(finite_values.min().item())
+            max_val = float(finite_values.max().item())
+            mean_val = float(finite_values.mean().item())
+        else:
+            min_val, max_val, mean_val = float("nan"), float("nan"), float("nan")
+        return (
+            f"{name}[shape={tuple(tensor.shape)}, dtype={tensor.dtype}, "
+            f"finite={finite_count}/{total_count}, nan={nan_count}, inf={inf_count}, "
+            f"min={min_val:.6e}, max={max_val:.6e}, mean={mean_val:.6e}]"
+        )
