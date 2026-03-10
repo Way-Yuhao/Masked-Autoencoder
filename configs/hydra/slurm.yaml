@@ -6,12 +6,12 @@ defaults:
 # slurm launcher configuration
 launcher:
   name: ${hydra.job.name}
-  timeout_min: 60  # 7200
+  timeout_min: 7200
   nodes: 1
-  tasks_per_node: 1
-  cpus_per_task: 60
-  gpus_per_node: 1
-  mem_gb: 600
+  tasks_per_node: 6
+  cpus_per_task: 18
+  gpus_per_node: 6
+  mem_gb: 700
 
 #  cpus_per_task: null
 #  gpus_per_node: null
